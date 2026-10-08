@@ -219,13 +219,21 @@ rect(IX0, 2.0, IX1 - IX0, 3.6, r=0.45, color="t")
 text("10 MG", "anton", 2.15, IC, 2.0 + 1.8 + 1.075, "middle", tracking=0.06)
 rect(IX0, 6.35, IX1 - IX0, 2.3, r=0.45, stroke=SW)
 text("PURITY > 99%", "mont_b", 0.9, IC, 6.35 + 1.15 + 0.45, "middle", tracking=0.04, maxw=7.0)
-line(IX0, 9.45, IX1, 9.45, SW)
-text("STORE 2–8 °C", "arch_c", 0.95, IX0 + 0.05, 11.2, tracking=0.04)
-text("(36 °F – 46 °F)", "arch_c", 0.95, IX0 + 0.05, 12.75, tracking=0.04)
-line(IX0, 14.0, IX1, 14.0, SW)
-_, cap_w = text("PROTECT FROM LIGHT", "arch_c", 0.75, IX0 + 0.05, 15.6, tracking=0.05, maxw=IX1 - IX0 - 0.1)
-for i, s in enumerate(["DO NOT FREEZE", "DO NOT SHAKE"], 1):
-    text(s, "arch_c", cap_w, IX0 + 0.05, 15.6 + i * 1.45, tracking=0.05)
+# storage + handling block, condensed and anchored to the bottom of the panel
+BOT, LEAD = 20.45, 1.12      # last baseline (aligns with PEPTIDE SCIENCE), line pitch
+cap_s = 0.85
+cap_w = text_ops("PROTECT FROM LIGHT", F["arch_c"], 1.0, 0.05)
+cap_w = min(cap_s, (IX1 - IX0 - 0.1) / (cap_w[2] - cap_w[1]))
+lines = [("STORE 2\u20138 \u00b0C", cap_s), ("(36 \u00b0F \u2013 46 \u00b0F)", cap_s), None,
+         ("PROTECT FROM LIGHT", cap_w), ("DO NOT FREEZE", cap_w), ("DO NOT SHAKE", cap_w)]
+y = BOT
+for item in reversed(lines):
+    if item is None:          # small break between storage temp and handling notes
+        y -= 0.35
+        continue
+    text(item[0], "arch_c", item[1], IX0 + 0.05, y, tracking=0.05)
+    y -= LEAD
+line(IX0, y + LEAD - cap_s - 0.75, IX1, y + LEAD - cap_s - 0.75, SW)
 
 # ---- barcode + batch number (real Code 128-C encoding "373777")
 BAR_X, BAR_LEN, MOD = 43.45, 2.55, 0.24
@@ -288,3 +296,22 @@ for kind, ops, c, sw in items:
 cv.showPage()
 cv.save()
 print("ok", len(items), "objects")
+
+# reportlab always emits an unused Helvetica reference; strip it so the PDF
+# contains no font objects at all (keeps print preflight clean).
+import re
+from pypdf import PdfReader, PdfWriter
+from pypdf.generic import NameObject, DecodedStreamObject
+
+r = PdfReader(OUT + ".pdf")
+w = PdfWriter()
+w.add_page(r.pages[0])
+pg = w.pages[0]
+data = re.sub(rb"BT\s*/F1[^\n]*?ET\s*", b"", pg.get_contents().get_data(), flags=re.S)
+s = DecodedStreamObject()
+s.set_data(data)
+pg[NameObject("/Contents")] = w._add_object(s.flate_encode())
+if "/Font" in pg["/Resources"]:
+    del pg["/Resources"][NameObject("/Font")]
+w.add_metadata({"/Title": "GLP3-R 10 MG label 47x22mm"})
+w.write(OUT + ".pdf")
