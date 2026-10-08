@@ -14,7 +14,10 @@ Vector labels generated from one template. `all_labels_preview.png` shows every 
 
 ## Adding or changing a product
 
-Edit `products.csv` (`name, amount, unit, vial_ml`) and regenerate:
+Edit `products.csv` (`name, amount, unit, vial_ml, components`) and regenerate.
+`components` is optional: blend contents separated by `/` (e.g. `10MG / 10MG`), printed under the name.
+For an `A/B` name with one component per part, each sits directly under its part.
+
 
 ```
 python3 source/build_labels.py <fonts-dir> products.csv .

@@ -222,29 +222,73 @@ TWO_LINE_BELOW = 4.6                            # single-line cap smaller than t
 NAME_TRACK = 0.02
 
 
-def draw_name(name):
-    cap1 = fit_cap(name, "anton", NAME_MAX_CAP, NAME_W_LONG, NAME_TRACK)
-    if cap1 >= TWO_LINE_BELOW or not split_name(name):
-        text(name, "anton", cap1, LC, NAME_BASE, "middle", tracking=NAME_TRACK)
-        return
-    # two lines: same cap height on both, largest that fits width and height
-    gap = 0.75
+def draw_name(name, base=NAME_BASE, max_cap=NAME_MAX_CAP):
+    """Draw the product name; returns (cap, left_x) when it ends up on one line."""
+    cap1 = fit_cap(name, "anton", max_cap, NAME_W_LONG, NAME_TRACK)
     best = None
-    for a, b in split_name(name):
-        c = min(fit_cap(a, "anton", 99, NAME_W_LONG, NAME_TRACK),
-                fit_cap(b, "anton", 99, NAME_W_LONG, NAME_TRACK),
-                (NAME_MAX_CAP - gap) / 2)
-        if best is None or c > best[0]:
-            best = (c, a, b)
+    if cap1 < TWO_LINE_BELOW:
+        # two lines: same cap height on both, largest that fits width and height
+        gap = 0.75
+        for a, b in split_name(name):
+            c = min(fit_cap(a, "anton", 99, NAME_W_LONG, NAME_TRACK),
+                    fit_cap(b, "anton", 99, NAME_W_LONG, NAME_TRACK),
+                    (max_cap - gap) / 2)
+            if best is None or c > best[0]:
+                best = (c, a, b)
+    if best is None or best[0] <= cap1:
+        w, _ = text(name, "anton", cap1, LC, base, "middle", tracking=NAME_TRACK)
+        return cap1, LC - w / 2
     c, a, b = best
-    if c <= cap1:  # splitting doesn't help
-        text(name, "anton", cap1, LC, NAME_BASE, "middle", tracking=NAME_TRACK)
-        return
-    text(a, "anton", c, LC, NAME_BASE - c - gap, "middle", tracking=NAME_TRACK)
-    text(b, "anton", c, LC, NAME_BASE, "middle", tracking=NAME_TRACK)
+    text(a, "anton", c, LC, base - c - gap, "middle", tracking=NAME_TRACK)
+    text(b, "anton", c, LC, base, "middle", tracking=NAME_TRACK)
+    return c, None
 
 
-def draw_label(name, amount, unit, vial_ml, batch="373777"):
+COMP_FONT, COMP_TRACK = "arch_cm", 0.04
+COMP_MAX_CAP, COMP_MIN_CAP_1LINE = 1.15, 0.85
+
+
+def ink_x(s, cap):
+    """Right edge of the ink of s relative to the ink-left of s (same font as name)."""
+    _, x0, x1 = text_ops(s, F["anton"], cap, NAME_TRACK)
+    return x1 - x0
+
+
+def draw_components(comps, name, name_cap, name_left, y):
+    """Blend contents under the name. If the name is 'A/B' on one line and there
+    is one component per part, each sits directly under its part."""
+    parts = name.split("/")
+    if name_left is not None and len(parts) == len(comps) > 1:
+        cap = min(COMP_MAX_CAP, *(fit_cap(c, COMP_FONT, 99, ink_x(p, name_cap) - 0.4, COMP_TRACK)
+                                  for c, p in zip(comps, parts)))
+        start = 0
+        for c, p in zip(comps, parts):
+            seg = name[:start + len(p)]
+            right = name_left + ink_x(seg, name_cap)
+            left = right - ink_x(p, name_cap)
+            text(c, COMP_FONT, cap, (left + right) / 2, y, "middle", tracking=COMP_TRACK)
+            start += len(p) + 1  # skip the slash
+        # slash between them, centred under the name's slash
+        for i in range(len(parts) - 1):
+            seg = "/".join(parts[:i + 1]) + "/"
+            sx = name_left + (ink_x(seg, name_cap) + ink_x(seg[:-1], name_cap)) / 2
+            text("/", COMP_FONT, cap, sx, y, "middle")
+        return [y]
+    line1 = " / ".join(comps)
+    cap = fit_cap(line1, COMP_FONT, COMP_MAX_CAP, NAME_W_LONG, COMP_TRACK)
+    if cap >= COMP_MIN_CAP_1LINE or len(comps) < 2:
+        text(line1, COMP_FONT, cap, LC, y, "middle", tracking=COMP_TRACK)
+        return [y]
+    k = (len(comps) + 1) // 2
+    l1, l2 = " / ".join(comps[:k]) + " /", " / ".join(comps[k:])
+    cap = min(1.0, fit_cap(l1, COMP_FONT, 99, NAME_W_LONG, COMP_TRACK),
+              fit_cap(l2, COMP_FONT, 99, NAME_W_LONG, COMP_TRACK))
+    text(l1, COMP_FONT, cap, LC, y, "middle", tracking=COMP_TRACK)
+    text(l2, COMP_FONT, cap, LC, y + cap * 1.45, "middle", tracking=COMP_TRACK)
+    return [y, y + cap * 1.45]
+
+
+def draw_label(name, amount, unit, vial_ml, comps=(), batch="373777"):
     items.clear()
     rect(0, 0, W, H, color="w")                      # white background
     rect(M, M, W - 2 * M, H - 2 * M, r=1.0, stroke=SW)  # frame
@@ -252,7 +296,14 @@ def draw_label(name, amount, unit, vial_ml, batch="373777"):
     # ---- left panel
     dose = f"{amount} {unit}"
     sub = dose if unit == "ML" else f"{dose} · {vial_ml} ML"
-    draw_name(name)
+    if not comps:
+        draw_name(name)
+    else:
+        # make room: name moves up, contents sit between it and the dose line
+        two = len(" / ".join(comps)) > 34 and "/" not in name
+        nb = 7.3 if two else 8.55
+        cap, left = draw_name(name, nb, min(NAME_MAX_CAP, nb - 2.3))
+        draw_components(list(comps), name, cap, left, nb + (1.55 if two else 1.75))
     text(sub, "mono", 1.75, LC, 13.0, "middle", tracking=0.02, maxw=14.5)
     pill_w, pill_h = 18.6, 2.5
     rect(LC - pill_w / 2, 14.05, pill_w, pill_h, r=0.55, stroke=SW)
@@ -390,7 +441,8 @@ with open(CSV_PATH, newline="") as f:
 for row in rows:
     name, amount = row["name"].strip(), row["amount"].strip()
     unit, vial = row["unit"].strip().upper(), row["vial_ml"].strip()
-    draw_label(name, amount, unit, vial)
+    comps = [c.strip() for c in (row.get("components") or "").split("/") if c.strip()]
+    draw_label(name, amount, unit, vial, comps)
     base = f"{slug(name, amount, unit)}_label_47x22mm"
     title = f"{name} {amount} {unit} label 47x22mm"
     write_svg(os.path.join(OUT_DIR, "svg", base + ".svg"), title)
